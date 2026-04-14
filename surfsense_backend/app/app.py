@@ -706,7 +706,11 @@ try { window.close(); } catch(e) {}
 
         return response
 
-    @app.get("/auth/nextcloud/poll-token", tags=["auth"])
+    @app.get(
+        "/auth/nextcloud/poll-token",
+        tags=["auth"],
+        dependencies=[Depends(rate_limit_login)],
+    )
     async def nextcloud_poll_token(key: str):
         """
         Poll for a pending OAuth token by poll_key.

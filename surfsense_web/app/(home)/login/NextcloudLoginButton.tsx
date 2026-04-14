@@ -137,6 +137,7 @@ export function NextcloudLoginButton() {
 			// In iframe: try opening a new tab to break out of the iframe
 			const newTab = window.open(authorizeUrl, "_blank");
 			if (newTab) {
+				popupRef.current = newTab;
 				setIsPolling(true);
 				startPolling(pollKey);
 				return;
