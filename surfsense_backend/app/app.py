@@ -513,18 +513,38 @@ if config.AUTH_TYPE == "NEXTCLOUD":
 
     from app.users import nextcloud_oauth_client
 
-    # ── Pending token store for popup-based OAuth polling ──
-    # Tokens are stored here after the OAuth callback processes successfully.
+    # ── Pending token store for popup-based OAuth polling (Redis-backed) ──
+    # Tokens are stored in Redis after the OAuth callback processes successfully.
     # The frontend polls /auth/nextcloud/poll-token to retrieve them.
-    _pending_tokens: dict[str, dict] = {}
-    _PENDING_TOKEN_TTL = 300  # 5 minutes
+    # Redis is used instead of an in-memory dict so tokens are shared across
+    # multiple uvicorn workers (UVICORN_WORKERS > 1).
+    import json as _json
 
-    def _cleanup_expired_tokens():
-        """Remove tokens older than TTL."""
-        now = time.time()
-        expired = [k for k, v in _pending_tokens.items() if now - v["timestamp"] > _PENDING_TOKEN_TTL]
-        for k in expired:
-            del _pending_tokens[k]
+    _PENDING_TOKEN_TTL = 300  # 5 minutes
+    _PENDING_TOKEN_PREFIX = "surfsense:nextcloud_poll:"
+
+    def _get_poll_redis() -> redis.Redis:
+        """Get Redis client for OAuth token polling (reuses rate-limit client)."""
+        return _get_rate_limit_redis()
+
+    def _store_pending_token(poll_key: str, token_data: dict):
+        """Store a pending token in Redis with automatic TTL expiry."""
+        r = _get_poll_redis()
+        r.setex(
+            f"{_PENDING_TOKEN_PREFIX}{poll_key}",
+            _PENDING_TOKEN_TTL,
+            _json.dumps(token_data),
+        )
+
+    def _pop_pending_token(poll_key: str) -> dict | None:
+        """Retrieve and delete a pending token from Redis (atomic)."""
+        r = _get_poll_redis()
+        key = f"{_PENDING_TOKEN_PREFIX}{poll_key}"
+        # GETDEL is atomic: returns the value and deletes the key in one round-trip
+        raw = r.getdel(key)
+        if raw:
+            return _json.loads(raw)
+        return None
 
     # Determine if we're in a secure context (HTTPS) or local development (HTTP)
     is_secure_context = config.BACKEND_URL and config.BACKEND_URL.startswith("https://")
@@ -573,7 +593,7 @@ if config.AUTH_TYPE == "NEXTCLOUD":
     # URL, stores it for polling, and returns an HTML page instead.
     @app.middleware("http")
     async def nextcloud_oauth_interceptor(request: Request, call_next):
-        if "/auth/nextcloud/callback" not in request.url.path:
+        if request.url.path != "/auth/nextcloud/callback":
             return await call_next(request)
 
         # Extract poll_key from the state JWT parameter
@@ -604,12 +624,10 @@ if config.AUTH_TYPE == "NEXTCLOUD":
                 refresh_token = params.get("refresh_token", [None])[0]
 
                 if token:
-                    _cleanup_expired_tokens()
-                    _pending_tokens[poll_key] = {
+                    _store_pending_token(poll_key, {
                         "access_token": token,
                         "refresh_token": refresh_token or "",
-                        "timestamp": time.time(),
-                    }
+                    })
                     logging.info(f"Nextcloud OAuth: stored pending token for poll_key={poll_key[:8]}...")
 
                 # Return HTML success page that tells user to close the window
@@ -697,8 +715,7 @@ try { window.close(); } catch(e) {}
         the OAuth popup. Once the callback middleware stores the token,
         this returns it and removes it from the pending store.
         """
-        _cleanup_expired_tokens()
-        token_data = _pending_tokens.pop(key, None)
+        token_data = _pop_pending_token(key)
         if token_data:
             return JSONResponse({
                 "status": "ready",
