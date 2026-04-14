@@ -506,6 +506,97 @@ if config.AUTH_TYPE == "GOOGLE":
         return response
 
 
+if config.AUTH_TYPE == "NEXTCLOUD":
+    from fastapi.responses import RedirectResponse
+
+    from app.users import nextcloud_oauth_client
+
+    # Determine if we're in a secure context (HTTPS) or local development (HTTP)
+    is_secure_context = config.BACKEND_URL and config.BACKEND_URL.startswith("https://")
+
+    # Cross-origin OAuth cookie settings (same pattern as Google OAuth)
+    csrf_cookie_samesite = "none" if is_secure_context else "lax"
+
+    csrf_cookie_domain = None
+    if config.BACKEND_URL:
+        from urllib.parse import urlparse
+
+        parsed_url = urlparse(config.BACKEND_URL)
+        csrf_cookie_domain = parsed_url.hostname
+
+    app.include_router(
+        fastapi_users.get_oauth_router(
+            nextcloud_oauth_client,
+            auth_backend,
+            SECRET,
+            is_verified_by_default=True,
+            csrf_token_cookie_secure=is_secure_context,
+            csrf_token_cookie_samesite=csrf_cookie_samesite,
+            csrf_token_cookie_httponly=False,
+        )
+        if not config.BACKEND_URL
+        else fastapi_users.get_oauth_router(
+            nextcloud_oauth_client,
+            auth_backend,
+            SECRET,
+            is_verified_by_default=True,
+            redirect_url=f"{config.BACKEND_URL}/auth/nextcloud/callback",
+            csrf_token_cookie_secure=is_secure_context,
+            csrf_token_cookie_samesite=csrf_cookie_samesite,
+            csrf_token_cookie_httponly=False,
+            csrf_token_cookie_domain=csrf_cookie_domain,
+        ),
+        prefix="/auth/nextcloud",
+        tags=["auth"],
+        dependencies=[
+            Depends(registration_allowed)
+        ],
+    )
+
+    @app.get("/auth/nextcloud/authorize-redirect", tags=["auth"])
+    async def nextcloud_authorize_redirect(
+        request: Request,
+    ):
+        """
+        Redirect-based OAuth authorization endpoint for Nextcloud.
+
+        Performs a server-side redirect to Nextcloud's OAuth page and sets
+        the CSRF cookie properly for cross-site contexts.
+        """
+        import secrets
+
+        from fastapi_users.router.oauth import generate_state_token
+
+        csrf_token = secrets.token_urlsafe(32)
+
+        state_data = {"csrftoken": csrf_token}
+        state = generate_state_token(state_data, SECRET, lifetime_seconds=3600)
+
+        if config.BACKEND_URL:
+            redirect_url = f"{config.BACKEND_URL}/auth/nextcloud/callback"
+        else:
+            redirect_url = str(request.url_for("oauth:nextcloud.jwt.callback"))
+
+        authorization_url = await nextcloud_oauth_client.get_authorization_url(
+            redirect_url,
+            state,
+        )
+
+        response = RedirectResponse(url=authorization_url, status_code=302)
+        response.set_cookie(
+            key="fastapiusersoauthcsrf",
+            value=csrf_token,
+            max_age=3600,
+            path="/",
+            domain=csrf_cookie_domain,
+            secure=is_secure_context,
+            httponly=False,
+            samesite=csrf_cookie_samesite,
+        )
+
+        return response
+
+
 app.include_router(crud_router, prefix="/api/v1", tags=["crud"])
 
 

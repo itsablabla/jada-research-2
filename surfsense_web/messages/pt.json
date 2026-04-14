@@ -69,6 +69,7 @@
 		"login_success": "Login realizado com sucesso",
 		"register_success": "Conta criada com sucesso",
 		"continue_with_google": "Continuar com Google",
+		"continue_with_nextcloud": "Continuar com Nextcloud",
 		"cloud_dev_notice": "O SurfSense Cloud está atualmente em desenvolvimento. Consulte",
 		"docs": "Documentação",
 		"cloud_dev_self_hosted": "para mais informações sobre a versão auto-hospedada.",

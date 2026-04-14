@@ -49,6 +49,15 @@ if config.AUTH_TYPE == "GOOGLE":
         config.GOOGLE_OAUTH_CLIENT_SECRET,
     )
 
+if config.AUTH_TYPE == "NEXTCLOUD":
+    from app.oauth.nextcloud import NextcloudOAuth2
+
+    nextcloud_oauth_client = NextcloudOAuth2(
+        client_id=config.NEXTCLOUD_OAUTH_CLIENT_ID,
+        client_secret=config.NEXTCLOUD_OAUTH_CLIENT_SECRET,
+        nextcloud_url=config.NEXTCLOUD_URL,
+    )
+
 
 class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     """
@@ -124,6 +133,33 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
             except Exception as e:
                 logger.warning(f"Failed to fetch Google profile: {e}")
+
+        # Fetch and store Nextcloud profile data if not already set
+        if oauth_name == "nextcloud" and (not user.display_name):
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(
+                        f"{config.NEXTCLOUD_URL}/ocs/v2.php/cloud/user?format=json",
+                        headers={
+                            "Authorization": f"Bearer {access_token}",
+                            "OCS-APIRequest": "true",
+                        },
+                    )
+                    response.raise_for_status()
+                    profile = response.json()
+                    user_data = profile.get("ocs", {}).get("data", {})
+
+                update_dict = {}
+
+                display_name = user_data.get("displayname") or user_data.get("display-name")
+                if not user.display_name and display_name:
+                    update_dict["display_name"] = display_name
+
+                if update_dict:
+                    user = await self.user_db.update(user, update_dict)
+
+            except Exception as e:
+                logger.warning(f"Failed to fetch Nextcloud profile: {e}")
 
         return user
 
@@ -277,6 +313,13 @@ class CustomBearerTransport(BearerTransport):
         )
 
         if config.AUTH_TYPE == "GOOGLE":
+            redirect_url = (
+                f"{config.NEXT_FRONTEND_URL}/auth/callback"
+                f"?token={bearer_response.access_token}"
+                f"&refresh_token={bearer_response.refresh_token}"
+            )
+            return RedirectResponse(redirect_url, status_code=302)
+        elif config.AUTH_TYPE == "NEXTCLOUD":
             redirect_url = (
                 f"{config.NEXT_FRONTEND_URL}/auth/callback"
                 f"?token={bearer_response.access_token}"
