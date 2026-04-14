@@ -507,9 +507,24 @@ if config.AUTH_TYPE == "GOOGLE":
 
 
 if config.AUTH_TYPE == "NEXTCLOUD":
-    from fastapi.responses import RedirectResponse
+    from urllib.parse import parse_qs, urlparse
+
+    from fastapi.responses import HTMLResponse, RedirectResponse
 
     from app.users import nextcloud_oauth_client
+
+    # ── Pending token store for popup-based OAuth polling ──
+    # Tokens are stored here after the OAuth callback processes successfully.
+    # The frontend polls /auth/nextcloud/poll-token to retrieve them.
+    _pending_tokens: dict[str, dict] = {}
+    _PENDING_TOKEN_TTL = 300  # 5 minutes
+
+    def _cleanup_expired_tokens():
+        """Remove tokens older than TTL."""
+        now = time.time()
+        expired = [k for k, v in _pending_tokens.items() if now - v["timestamp"] > _PENDING_TOKEN_TTL]
+        for k in expired:
+            del _pending_tokens[k]
 
     # Determine if we're in a secure context (HTTPS) or local development (HTTP)
     is_secure_context = config.BACKEND_URL and config.BACKEND_URL.startswith("https://")
@@ -519,8 +534,6 @@ if config.AUTH_TYPE == "NEXTCLOUD":
 
     csrf_cookie_domain = None
     if config.BACKEND_URL:
-        from urllib.parse import urlparse
-
         parsed_url = urlparse(config.BACKEND_URL)
         csrf_cookie_domain = parsed_url.hostname
 
@@ -553,15 +566,91 @@ if config.AUTH_TYPE == "NEXTCLOUD":
         ],
     )
 
+    # ── Middleware to intercept OAuth callback and store token for polling ──
+    # Nextcloud Login Flow v2 submits the "Grant access" form via AJAX (fetch),
+    # so the browser never navigates to the 302 redirect. This middleware
+    # intercepts the successful 302, extracts the JWT token from the redirect
+    # URL, stores it for polling, and returns an HTML page instead.
+    @app.middleware("http")
+    async def nextcloud_oauth_interceptor(request: Request, call_next):
+        if "/auth/nextcloud/callback" not in request.url.path:
+            return await call_next(request)
+
+        # Extract poll_key from the state JWT parameter
+        state = request.query_params.get("state")
+        poll_key = None
+        if state:
+            try:
+                import jwt as pyjwt
+                payload = pyjwt.decode(
+                    state, SECRET, algorithms=["HS256"],
+                    audience="fastapi-users:oauth-state",
+                )
+                poll_key = payload.get("poll_key")
+            except Exception:
+                pass
+
+        # Let fastapi-users process the callback normally
+        response = await call_next(request)
+
+        # If we have a poll_key and callback returned a redirect with token,
+        # intercept the redirect and store the token for polling instead
+        if poll_key and response.status_code == 302:
+            location = response.headers.get("location", "")
+            if "token=" in location:
+                parsed = urlparse(location)
+                params = parse_qs(parsed.query)
+                token = params.get("token", [None])[0]
+                refresh_token = params.get("refresh_token", [None])[0]
+
+                if token:
+                    _cleanup_expired_tokens()
+                    _pending_tokens[poll_key] = {
+                        "access_token": token,
+                        "refresh_token": refresh_token or "",
+                        "timestamp": time.time(),
+                    }
+                    logger.info(f"Nextcloud OAuth: stored pending token for poll_key={poll_key[:8]}...")
+
+                # Return HTML success page that tells user to close the window
+                return HTMLResponse(
+                    content="""<!DOCTYPE html>
+<html><head><title>Authentication Successful</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+       display: flex; align-items: center; justify-content: center; height: 100vh;
+       margin: 0; background: #f5f5f5; color: #333; }
+.card { text-align: center; padding: 2rem; background: white; border-radius: 12px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1); max-width: 400px; }
+h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+p { color: #666; }
+</style></head>
+<body><div class="card">
+<h1>Authentication Successful</h1>
+<p>You can close this window. Redirecting...</p>
+<script>
+// Try to close the popup; if it fails (not a popup), the parent page will handle it
+try { window.close(); } catch(e) {}
+</script>
+</div></body></html>""",
+                    status_code=200,
+                )
+
+        return response
+
     @app.get("/auth/nextcloud/authorize-redirect", tags=["auth"])
     async def nextcloud_authorize_redirect(
         request: Request,
+        poll_key: str | None = None,
     ):
         """
         Redirect-based OAuth authorization endpoint for Nextcloud.
 
         Performs a server-side redirect to Nextcloud's OAuth page and sets
         the CSRF cookie properly for cross-site contexts.
+
+        If poll_key is provided, it's embedded in the OAuth state so the
+        callback middleware can store the token for popup-based polling.
         """
         import secrets
 
@@ -570,6 +659,9 @@ if config.AUTH_TYPE == "NEXTCLOUD":
         csrf_token = secrets.token_urlsafe(32)
 
         state_data = {"csrftoken": csrf_token}
+        if poll_key:
+            state_data["poll_key"] = poll_key
+
         state = generate_state_token(state_data, SECRET, lifetime_seconds=3600)
 
         if config.BACKEND_URL:
@@ -595,6 +687,25 @@ if config.AUTH_TYPE == "NEXTCLOUD":
         )
 
         return response
+
+    @app.get("/auth/nextcloud/poll-token", tags=["auth"])
+    async def nextcloud_poll_token(key: str):
+        """
+        Poll for a pending OAuth token by poll_key.
+
+        The frontend calls this endpoint every few seconds after opening
+        the OAuth popup. Once the callback middleware stores the token,
+        this returns it and removes it from the pending store.
+        """
+        _cleanup_expired_tokens()
+        token_data = _pending_tokens.pop(key, None)
+        if token_data:
+            return JSONResponse({
+                "status": "ready",
+                "access_token": token_data["access_token"],
+                "refresh_token": token_data["refresh_token"],
+            })
+        return JSONResponse({"status": "pending"}, status_code=202)
 
 
 app.include_router(crud_router, prefix="/api/v1", tags=["crud"])
