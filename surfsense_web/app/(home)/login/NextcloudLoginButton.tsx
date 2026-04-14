@@ -125,23 +125,24 @@ export function NextcloudLoginButton() {
 
 		const backendUrl = process.env.NEXT_PUBLIC_FASTAPI_BACKEND_URL;
 		const authorizeUrl = `${backendUrl}/auth/nextcloud/authorize-redirect?poll_key=${encodeURIComponent(pollKey)}`;
+		// Fallback URL without poll_key for same-window redirects.
+		// Without poll_key, the backend won't intercept the callback redirect,
+		// allowing the normal /auth/callback flow to work.
+		const fallbackUrl = `${backendUrl}/auth/nextcloud/authorize-redirect`;
 
 		// Detect if we're in an iframe (e.g., Nextcloud external sites)
 		const isInIframe = window.self !== window.top;
 
 		if (isInIframe) {
-			// In iframe: use same-window redirect (popups blocked in iframes)
-			// Start polling BEFORE redirect so when we come back, the token is ready
-			// Actually, same-window redirect loses JS state, so use a different approach:
-			// Open the OAuth flow in a new tab to break out of the iframe
+			// In iframe: try opening a new tab to break out of the iframe
 			const newTab = window.open(authorizeUrl, "_blank");
 			if (newTab) {
 				setIsPolling(true);
 				startPolling(pollKey);
 				return;
 			}
-			// If new tab blocked too, fall back to same-window redirect
-			window.location.href = authorizeUrl;
+			// If new tab blocked too, fall back to same-window redirect without poll_key
+			window.location.href = fallbackUrl;
 			return;
 		}
 
@@ -158,8 +159,8 @@ export function NextcloudLoginButton() {
 		);
 
 		if (!popup || popup.closed) {
-			// Popup blocked — fall back to same-window redirect
-			window.location.href = authorizeUrl;
+			// Popup blocked — fall back to same-window redirect without poll_key
+			window.location.href = fallbackUrl;
 			return;
 		}
 
