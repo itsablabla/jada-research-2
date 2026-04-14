@@ -187,6 +187,11 @@ def rate_limit_password_reset(request: Request):
     )
 
 
+def rate_limit_poll(request: Request):
+    """90 poll attempts per minute per IP (supports 2-second polling interval)."""
+    _check_rate_limit(request, max_requests=90, window_seconds=60, scope="poll_token")
+
+
 def _enable_slow_callback_logging(threshold_sec: float = 0.5) -> None:
     """Monkey-patch the event loop to warn whenever a callback blocks longer than *threshold_sec*.
 
@@ -709,7 +714,7 @@ try { window.close(); } catch(e) {}
     @app.get(
         "/auth/nextcloud/poll-token",
         tags=["auth"],
-        dependencies=[Depends(rate_limit_login)],
+        dependencies=[Depends(rate_limit_poll)],
     )
     async def nextcloud_poll_token(key: str):
         """
