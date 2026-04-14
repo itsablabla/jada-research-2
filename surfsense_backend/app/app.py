@@ -630,9 +630,9 @@ if config.AUTH_TYPE == "NEXTCLOUD":
                     })
                     logging.info(f"Nextcloud OAuth: stored pending token for poll_key={poll_key[:8]}...")
 
-                # Return HTML success page that tells user to close the window
-                return HTMLResponse(
-                    content="""<!DOCTYPE html>
+                    # Return HTML success page that tells user to close the window
+                    return HTMLResponse(
+                        content="""<!DOCTYPE html>
 <html><head><title>Authentication Successful</title>
 <style>
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -651,8 +651,8 @@ p { color: #666; }
 try { window.close(); } catch(e) {}
 </script>
 </div></body></html>""",
-                    status_code=200,
-                )
+                        status_code=200,
+                    )
 
         return response
 
