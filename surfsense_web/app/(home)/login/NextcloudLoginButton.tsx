@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { motion } from "motion/react";
 import { useTranslations } from "next-intl";
 import { Logo } from "@/components/Logo";
@@ -23,11 +24,13 @@ function NextcloudIcon({ className }: { className?: string }) {
 
 export function NextcloudLoginButton() {
 	const t = useTranslations("auth");
+	const searchParams = useSearchParams();
 	const [isPolling, setIsPolling] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const popupRef = useRef<Window | null>(null);
 	const pollKeyRef = useRef<string | null>(null);
+	const autoLoginTriggered = useRef(false);
 
 	// Clean up on unmount
 	useEffect(() => {
@@ -123,6 +126,25 @@ export function NextcloudLoginButton() {
 		const backendUrl = process.env.NEXT_PUBLIC_FASTAPI_BACKEND_URL;
 		const authorizeUrl = `${backendUrl}/auth/nextcloud/authorize-redirect?poll_key=${encodeURIComponent(pollKey)}`;
 
+		// Detect if we're in an iframe (e.g., Nextcloud external sites)
+		const isInIframe = window.self !== window.top;
+
+		if (isInIframe) {
+			// In iframe: use same-window redirect (popups blocked in iframes)
+			// Start polling BEFORE redirect so when we come back, the token is ready
+			// Actually, same-window redirect loses JS state, so use a different approach:
+			// Open the OAuth flow in a new tab to break out of the iframe
+			const newTab = window.open(authorizeUrl, "_blank");
+			if (newTab) {
+				setIsPolling(true);
+				startPolling(pollKey);
+				return;
+			}
+			// If new tab blocked too, fall back to same-window redirect
+			window.location.href = authorizeUrl;
+			return;
+		}
+
 		// Open popup window for OAuth flow
 		const width = 600;
 		const height = 700;
@@ -147,6 +169,23 @@ export function NextcloudLoginButton() {
 		// Start polling for the token
 		startPolling(pollKey);
 	}, [startPolling]);
+
+	// Auto-login: trigger OAuth flow automatically when:
+	// 1. ?auto=1 is in the URL, OR
+	// 2. We're loaded inside an iframe (e.g., Nextcloud external sites app)
+	useEffect(() => {
+		if (autoLoginTriggered.current) return;
+		const auto = searchParams.get("auto");
+		const isInIframe = typeof window !== "undefined" && window.self !== window.top;
+		if (auto === "1" || isInIframe) {
+			autoLoginTriggered.current = true;
+			// Small delay to ensure component is fully mounted
+			const timer = setTimeout(() => {
+				handleNextcloudLogin();
+			}, 500);
+			return () => clearTimeout(timer);
+		}
+	}, [searchParams, handleNextcloudLogin]);
 
 	return (
 		<div className="relative w-full overflow-hidden">
