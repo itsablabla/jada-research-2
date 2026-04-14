@@ -610,7 +610,7 @@ if config.AUTH_TYPE == "NEXTCLOUD":
                         "refresh_token": refresh_token or "",
                         "timestamp": time.time(),
                     }
-                    logger.info(f"Nextcloud OAuth: stored pending token for poll_key={poll_key[:8]}...")
+                    logging.info(f"Nextcloud OAuth: stored pending token for poll_key={poll_key[:8]}...")
 
                 # Return HTML success page that tells user to close the window
                 return HTMLResponse(
