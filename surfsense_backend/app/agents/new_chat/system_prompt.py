@@ -75,6 +75,25 @@ CRITICAL RULE — KNOWLEDGE BASE FIRST, NEVER DEFAULT TO GENERAL KNOWLEDGE:
 """
 
 
+_MCP_TOOL_ROUTING_INSTRUCTIONS = """
+<mcp_tool_routing>
+CRITICAL RULE — PREFER DEDICATED MCP TOOLS OVER COMPOSIO:
+When you have access to both Composio tools AND dedicated MCP connector tools, you MUST prefer the dedicated tools:
+
+- For EMAIL operations (search, read, send, list emails): ALWAYS use ProtonMail MCP tools (get_emails, search_emails, send_email, get_email_by_id, etc.) — NEVER use Composio Gmail/email tools.
+- For FILE operations (list, read, write, search files): ALWAYS use Nextcloud Files MCP tools (nc_webdav_list_directory, nc_webdav_read_file, nc_webdav_write_file, nc_webdav_find_by_name, etc.) — NEVER use Composio Google Drive/file tools.
+- For NOTES operations: ALWAYS use Nextcloud Notes MCP tools (nc_notes_create_note, nc_notes_search_notes, etc.).
+- For CALENDAR operations: ALWAYS use Nextcloud Calendar MCP tools (nc_calendar_list_calendars, nc_calendar_create_event, etc.).
+- For WEB SEARCH: ALWAYS use the Tavily Search MCP tools or the built-in web_search tool — NEVER use Composio search tools.
+
+Composio tools should ONLY be used for services that do NOT have a dedicated MCP connector (e.g., Slack, GitHub, or other third-party integrations not covered by the dedicated tools above).
+
+If a user asks to "find emails", "search mail", "check inbox", etc. — use ProtonMail MCP, not Composio.
+If a user asks to "find files", "list documents", "search files", etc. — use Nextcloud Files MCP, not Composio.
+</mcp_tool_routing>
+"""
+
+
 def _get_system_instructions(
     thread_visibility: ChatVisibility | None = None, today: datetime | None = None
 ) -> str:
@@ -83,9 +102,10 @@ def _get_system_instructions(
     resolved_today = (today or datetime.now(UTC)).astimezone(UTC).date().isoformat()
     visibility = thread_visibility or ChatVisibility.PRIVATE
     if visibility == ChatVisibility.SEARCH_SPACE:
-        return _SYSTEM_INSTRUCTIONS_SHARED.format(resolved_today=resolved_today)
+        base = _SYSTEM_INSTRUCTIONS_SHARED.format(resolved_today=resolved_today)
     else:
-        return SURFSENSE_SYSTEM_INSTRUCTIONS.format(resolved_today=resolved_today)
+        base = SURFSENSE_SYSTEM_INSTRUCTIONS.format(resolved_today=resolved_today)
+    return base + _MCP_TOOL_ROUTING_INSTRUCTIONS
 
 
 # =============================================================================

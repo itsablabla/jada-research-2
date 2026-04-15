@@ -4,6 +4,7 @@ Default workspace configuration for new search spaces.
 When a new search space is created, these defaults are automatically applied:
 - 4 MCP connectors (Composio, Nextcloud Files, ProtonMail, Tavily)
 - 2 LLM configs (Claude Sonnet 4 for chat, Gemini 2.0 Flash for transforms)
+- 1 Image generation config (DALL-E / gpt-image-1 via OpenAI)
 
 All secrets are read from environment variables. Set them in the backend
 container's .env or docker-compose environment section:
@@ -15,6 +16,7 @@ container's .env or docker-compose environment section:
   DEFAULT_TAVILY_MCP_URL
   DEFAULT_ANTHROPIC_API_KEY
   DEFAULT_GOOGLE_API_KEY
+  DEFAULT_OPENAI_API_KEY          (for DALL-E image generation)
 """
 
 import logging
@@ -137,5 +139,28 @@ def get_llm_api_key(config: dict) -> str:
         logger.warning(
             f"{config['api_key_env']} not set — LLM config '{config['name']}' "
             "will be created without an API key"
+        )
+    return key
+
+
+# ---------------------------------------------------------------------------
+# Default Image Generation Configuration
+# ---------------------------------------------------------------------------
+
+DEFAULT_IMAGE_GEN_CONFIG = {
+    "name": "DALL-E",
+    "provider": "OPENAI",
+    "model_name": "gpt-image-1",
+    "api_key_env": "DEFAULT_OPENAI_API_KEY",
+}
+
+
+def get_image_gen_api_key() -> str:
+    """Get the API key for the default image generation config."""
+    key = os.getenv(DEFAULT_IMAGE_GEN_CONFIG["api_key_env"], "")
+    if not key:
+        logger.warning(
+            f"{DEFAULT_IMAGE_GEN_CONFIG['api_key_env']} not set — "
+            "image generation config will be skipped"
         )
     return key

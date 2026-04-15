@@ -7,11 +7,14 @@ from sqlalchemy.future import select
 
 from app.config import config
 from app.config.workspace_defaults import (
+    DEFAULT_IMAGE_GEN_CONFIG,
     DEFAULT_LLM_CONFIGS,
     _get_default_mcp_connectors,
+    get_image_gen_api_key,
     get_llm_api_key,
 )
 from app.db import (
+    ImageGenProvider,
     ImageGenerationConfig,
     LiteLLMProvider,
     NewLLMConfig,
@@ -151,6 +154,35 @@ async def create_default_llm_configs(
     )
 
 
+async def create_default_image_gen_config(
+    session: AsyncSession,
+    search_space_id: int,
+    user_id,
+) -> None:
+    """
+    Create default image generation config (DALL-E) for a new search space.
+    Skipped if DEFAULT_OPENAI_API_KEY is not set.
+    """
+    api_key = get_image_gen_api_key()
+    if not api_key:
+        return
+
+    db_img_config = ImageGenerationConfig(
+        name=DEFAULT_IMAGE_GEN_CONFIG["name"],
+        provider=ImageGenProvider(DEFAULT_IMAGE_GEN_CONFIG["provider"]),
+        model_name=DEFAULT_IMAGE_GEN_CONFIG["model_name"],
+        api_key=api_key,
+        search_space_id=search_space_id,
+        user_id=user_id,
+    )
+    session.add(db_img_config)
+    await session.flush()
+    logger.info(
+        f"Created default image generation config "
+        f"for search space {search_space_id}"
+    )
+
+
 @router.post("/searchspaces", response_model=SearchSpaceRead)
 async def create_search_space(
     search_space: SearchSpaceCreate,
@@ -175,6 +207,9 @@ async def create_search_space(
 
         # Create default LLM configs (Claude Sonnet 4, Gemini Flash) and set preferences
         await create_default_llm_configs(session, db_search_space, user.id)
+
+        # Create default image generation config (DALL-E)
+        await create_default_image_gen_config(session, db_search_space.id, user.id)
 
         await session.commit()
         await session.refresh(db_search_space)
