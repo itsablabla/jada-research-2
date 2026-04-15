@@ -33,9 +33,16 @@ from langchain_core.callbacks import dispatch_custom_event
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 
-from app.db import Report, shielded_async_session
+from sqlalchemy import select, delete
+
+from app.db import Chunk, Document, DocumentStatus, DocumentType, Report, shielded_async_session
 from app.services.connector_service import ConnectorService
 from app.services.llm_service import get_document_summary_llm
+from app.utils.document_converters import (
+    create_document_chunks,
+    embed_text,
+    generate_content_hash,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1059,6 +1066,73 @@ def create_generate_report_tool(
                 f"{metadata.get('section_count', 0)} sections"
             )
 
+            # ── Phase 4: AUTO-SAVE as workspace Document ─────────────────
+            # Every report is automatically saved as a Document in the same
+            # workspace so it becomes searchable via RAG and visible in the
+            # documents list.  Failures here must not break report delivery.
+            saved_document_id = None
+            try:
+                content_hash = generate_content_hash(
+                    report_content, search_space_id
+                )
+                doc_embedding = embed_text(report_content[:8000])
+                chunks = await create_document_chunks(report_content)
+
+                async with shielded_async_session() as doc_session:
+                    # If this is a revision, remove the Document from the
+                    # previous report version so stale content doesn't
+                    # pollute RAG search results.  Chunks cascade-delete.
+                    if saved_group_id is not None:
+                        old_docs = (
+                            await doc_session.execute(
+                                select(Document).where(
+                                    Document.search_space_id == search_space_id,
+                                    Document.document_type == DocumentType.REPORT,
+                                    Document.document_metadata["report_group_id"].as_string()
+                                    == str(saved_group_id),
+                                    Document.document_metadata["report_id"].as_integer()
+                                    != saved_report_id,
+                                )
+                            )
+                        ).scalars().all()
+                        for old_doc in old_docs:
+                            await doc_session.delete(old_doc)
+
+                    document = Document(
+                        title=topic,
+                        document_type=DocumentType.REPORT,
+                        document_metadata={
+                            "source": "report",
+                            "report_id": saved_report_id,
+                            "report_group_id": saved_group_id,
+                            "word_count": metadata.get("word_count", 0),
+                        },
+                        content=report_content,
+                        content_hash=content_hash,
+                        embedding=doc_embedding,
+                        source_markdown=report_content,
+                        content_needs_reindexing=False,
+                        search_space_id=search_space_id,
+                        status=DocumentStatus.ready(),
+                        chunks=chunks,
+                    )
+                    doc_session.add(document)
+                    await doc_session.commit()
+                    await doc_session.refresh(document)
+                    saved_document_id = document.id
+
+                logger.info(
+                    f"[generate_report] Auto-saved report {saved_report_id} "
+                    f"as document {saved_document_id}"
+                )
+            except Exception:
+                # Document auto-save is best-effort; never block report delivery
+                logger.warning(
+                    f"[generate_report] Failed to auto-save report {saved_report_id} "
+                    "as document",
+                    exc_info=True,
+                )
+
             return {
                 "status": "ready",
                 "report_id": saved_report_id,
@@ -1067,6 +1141,7 @@ def create_generate_report_tool(
                 "is_revision": bool(parent_report_content),
                 "report_markdown": report_content,
                 "message": f"Report generated successfully: {topic}",
+                "document_id": saved_document_id,
             }
 
         except Exception as e:

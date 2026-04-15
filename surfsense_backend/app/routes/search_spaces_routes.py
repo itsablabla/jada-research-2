@@ -6,10 +6,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.config import config
+from app.config.workspace_defaults import (
+    DEFAULT_IMAGE_GEN_CONFIG,
+    DEFAULT_LLM_CONFIGS,
+    _get_default_mcp_connectors,
+    get_image_gen_api_key,
+    get_llm_api_key,
+)
 from app.db import (
+    ImageGenProvider,
     ImageGenerationConfig,
+    LiteLLMProvider,
     NewLLMConfig,
     Permission,
+    SearchSourceConnector,
+    SearchSourceConnectorType,
     SearchSpace,
     SearchSpaceMembership,
     SearchSpaceRole,
@@ -76,6 +87,112 @@ async def create_default_roles_and_membership(
     session.add(owner_membership)
 
 
+async def create_default_mcp_connectors(
+    session: AsyncSession,
+    search_space_id: int,
+    user_id,
+) -> None:
+    """
+    Create default MCP connectors for a new search space.
+    Connectors are defined in app.config.workspace_defaults.
+    """
+    connectors = _get_default_mcp_connectors()
+    for connector_cfg in connectors:
+        db_connector = SearchSourceConnector(
+            name=connector_cfg["name"],
+            connector_type=SearchSourceConnectorType.MCP_CONNECTOR,
+            is_indexable=False,
+            config=connector_cfg["config"],
+            search_space_id=search_space_id,
+            user_id=user_id,
+        )
+        session.add(db_connector)
+    await session.flush()
+    logger.info(
+        f"Created {len(connectors)} default MCP connectors "
+        f"for search space {search_space_id}"
+    )
+
+
+async def create_default_llm_configs(
+    session: AsyncSession,
+    search_space: "SearchSpace",
+    user_id,
+) -> None:
+    """
+    Create default LLM configurations for a new search space and set the
+    search space's LLM preference IDs accordingly.
+    """
+    created_count = 0
+    for llm_cfg in DEFAULT_LLM_CONFIGS:
+        api_key = get_llm_api_key(llm_cfg)
+        if not api_key:
+            logger.warning(
+                f"Skipping LLM config '{llm_cfg['name']}' — no API key"
+            )
+            continue
+
+        db_llm = NewLLMConfig(
+            name=llm_cfg["name"],
+            description=llm_cfg.get("description", ""),
+            provider=LiteLLMProvider(llm_cfg["provider"]),
+            model_name=llm_cfg["model_name"],
+            api_key=api_key,
+            system_instructions="",
+            use_default_system_instructions=True,
+            citations_enabled=True,
+            search_space_id=search_space.id,
+            user_id=user_id,
+        )
+        session.add(db_llm)
+        await session.flush()  # Get the LLM config ID
+        created_count += 1
+
+        # Assign to the appropriate search space preference
+        role = llm_cfg.get("role")
+        if role == "agent":
+            search_space.agent_llm_id = db_llm.id
+        elif role == "document_summary":
+            search_space.document_summary_llm_id = db_llm.id
+
+    logger.info(
+        f"Created {created_count} default LLM configs "
+        f"for search space {search_space.id} "
+        f"(agent_llm_id={search_space.agent_llm_id}, "
+        f"document_summary_llm_id={search_space.document_summary_llm_id})"
+    )
+
+
+async def create_default_image_gen_config(
+    session: AsyncSession,
+    search_space: "SearchSpace",
+    user_id,
+) -> None:
+    """
+    Create default image generation config (DALL-E) for a new search space.
+    Skipped if DEFAULT_OPENAI_API_KEY is not set.
+    """
+    api_key = get_image_gen_api_key()
+    if not api_key:
+        return
+
+    db_img_config = ImageGenerationConfig(
+        name=DEFAULT_IMAGE_GEN_CONFIG["name"],
+        provider=ImageGenProvider(DEFAULT_IMAGE_GEN_CONFIG["provider"]),
+        model_name=DEFAULT_IMAGE_GEN_CONFIG["model_name"],
+        api_key=api_key,
+        search_space_id=search_space.id,
+        user_id=user_id,
+    )
+    session.add(db_img_config)
+    await session.flush()
+    search_space.image_generation_config_id = db_img_config.id
+    logger.info(
+        f"Created default image generation config "
+        f"for search space {search_space.id}"
+    )
+
+
 @router.post("/searchspaces", response_model=SearchSpaceRead)
 async def create_search_space(
     search_space: SearchSpaceCreate,
@@ -94,6 +211,15 @@ async def create_search_space(
 
         # Create default roles and owner membership
         await create_default_roles_and_membership(session, db_search_space.id, user.id)
+
+        # Create default MCP connectors (Composio, Nextcloud, ProtonMail, Tavily)
+        await create_default_mcp_connectors(session, db_search_space.id, user.id)
+
+        # Create default LLM configs (Claude Sonnet 4, Gemini Flash) and set preferences
+        await create_default_llm_configs(session, db_search_space, user.id)
+
+        # Create default image generation config (DALL-E)
+        await create_default_image_gen_config(session, db_search_space, user.id)
 
         await session.commit()
         await session.refresh(db_search_space)
