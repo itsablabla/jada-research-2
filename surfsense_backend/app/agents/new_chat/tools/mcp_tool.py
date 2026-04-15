@@ -289,6 +289,14 @@ async def _load_stdio_mcp_tools(
             f"'{command}' (connector {connector_id})"
         )
 
+        # Cap tools per connector to limit context window usage
+        if len(tool_definitions) > _MCP_MAX_TOOLS_PER_CONNECTOR:
+            logger.warning(
+                f"Stdio MCP server '{command}' (connector {connector_id}) returned "
+                f"{len(tool_definitions)} tools, capping at {_MCP_MAX_TOOLS_PER_CONNECTOR}"
+            )
+            tool_definitions = tool_definitions[:_MCP_MAX_TOOLS_PER_CONNECTOR]
+
     # Create LangChain tools from definitions
     for tool_def in tool_definitions:
         try:
