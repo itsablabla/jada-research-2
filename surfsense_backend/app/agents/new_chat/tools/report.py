@@ -33,7 +33,9 @@ from langchain_core.callbacks import dispatch_custom_event
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 
-from app.db import Document, DocumentStatus, DocumentType, Report, shielded_async_session
+from sqlalchemy import select, delete
+
+from app.db import Chunk, Document, DocumentStatus, DocumentType, Report, shielded_async_session
 from app.services.connector_service import ConnectorService
 from app.services.llm_service import get_document_summary_llm
 from app.utils.document_converters import (
@@ -1077,6 +1079,25 @@ def create_generate_report_tool(
                 chunks = await create_document_chunks(report_content)
 
                 async with shielded_async_session() as doc_session:
+                    # If this is a revision, remove the Document from the
+                    # previous report version so stale content doesn't
+                    # pollute RAG search results.  Chunks cascade-delete.
+                    if saved_group_id is not None:
+                        old_docs = (
+                            await doc_session.execute(
+                                select(Document).where(
+                                    Document.search_space_id == search_space_id,
+                                    Document.document_type == DocumentType.REPORT,
+                                    Document.document_metadata["report_group_id"].as_string()
+                                    == str(saved_group_id),
+                                    Document.document_metadata["report_id"].as_integer()
+                                    != saved_report_id,
+                                )
+                            )
+                        ).scalars().all()
+                        for old_doc in old_docs:
+                            await doc_session.delete(old_doc)
+
                     document = Document(
                         title=topic,
                         document_type=DocumentType.REPORT,
