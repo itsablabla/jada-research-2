@@ -12,6 +12,7 @@ import { AUTH_TYPE } from "@/lib/env-config";
 import { AmbientBackground } from "./AmbientBackground";
 import { GoogleLoginButton } from "./GoogleLoginButton";
 import { LocalLoginForm } from "./LocalLoginForm";
+import { NextcloudLoginButton } from "./NextcloudLoginButton";
 
 function LoginContent() {
 	const t = useTranslations("auth");
@@ -110,6 +111,10 @@ function LoginContent() {
 
 	if (authType === "GOOGLE") {
 		return <GoogleLoginButton />;
+	}
+
+	if (authType === "NEXTCLOUD") {
+		return <NextcloudLoginButton />;
 	}
 
 	return (

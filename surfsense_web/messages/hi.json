@@ -69,6 +69,7 @@
 		"login_success": "सफलतापूर्वक लॉगिन हुआ",
 		"register_success": "खाता सफलतापूर्वक बनाया गया",
 		"continue_with_google": "Google के साथ जारी रखें",
+		"continue_with_nextcloud": "Nextcloud के साथ जारी रखें",
 		"cloud_dev_notice": "SurfSense Cloud वर्तमान में विकास में है। देखें",
 		"docs": "दस्तावेज़",
 		"cloud_dev_self_hosted": "सेल्फ-होस्टेड संस्करण के बारे में अधिक जानकारी के लिए।",

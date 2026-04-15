@@ -316,6 +316,11 @@ class Config:
     GOOGLE_OAUTH_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
     GOOGLE_PICKER_API_KEY = os.getenv("GOOGLE_PICKER_API_KEY")
 
+    # Nextcloud OAuth
+    NEXTCLOUD_OAUTH_CLIENT_ID = os.getenv("NEXTCLOUD_OAUTH_CLIENT_ID")
+    NEXTCLOUD_OAUTH_CLIENT_SECRET = os.getenv("NEXTCLOUD_OAUTH_CLIENT_SECRET")
+    NEXTCLOUD_URL = os.getenv("NEXTCLOUD_URL")  # e.g. https://next.garzaos.online
+
     # Google Calendar redirect URI
     GOOGLE_CALENDAR_REDIRECT_URI = os.getenv("GOOGLE_CALENDAR_REDIRECT_URI")
 

@@ -69,6 +69,7 @@
 		"login_success": "Successfully logged in",
 		"register_success": "Account created successfully",
 		"continue_with_google": "Continue with Google",
+		"continue_with_nextcloud": "Continue with Nextcloud",
 		"cloud_dev_notice": "SurfSense Cloud is currently in development. Check",
 		"docs": "Docs",
 		"cloud_dev_self_hosted": "for more information on Self-Hosted version.",

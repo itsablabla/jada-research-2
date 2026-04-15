@@ -29,7 +29,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, backref, declared_attr, rela
 
 from app.config import config
 
-if config.AUTH_TYPE == "GOOGLE":
+if config.AUTH_TYPE in ("GOOGLE", "NEXTCLOUD"):
     from fastapi_users.db import SQLAlchemyBaseOAuthAccountTableUUID
 
 DATABASE_URL = config.DATABASE_URL
@@ -65,6 +65,7 @@ class DocumentType(StrEnum):
     COMPOSIO_GMAIL_CONNECTOR = "COMPOSIO_GMAIL_CONNECTOR"
     COMPOSIO_GOOGLE_CALENDAR_CONNECTOR = "COMPOSIO_GOOGLE_CALENDAR_CONNECTOR"
     LOCAL_FOLDER_FILE = "LOCAL_FOLDER_FILE"
+    IMAP_CONNECTOR = "IMAP_CONNECTOR"
 
 
 # Native Google document types → their legacy Composio equivalents.
@@ -110,6 +111,7 @@ class SearchSourceConnectorType(StrEnum):
     COMPOSIO_GOOGLE_DRIVE_CONNECTOR = "COMPOSIO_GOOGLE_DRIVE_CONNECTOR"
     COMPOSIO_GMAIL_CONNECTOR = "COMPOSIO_GMAIL_CONNECTOR"
     COMPOSIO_GOOGLE_CALENDAR_CONNECTOR = "COMPOSIO_GOOGLE_CALENDAR_CONNECTOR"
+    IMAP_CONNECTOR = "IMAP_CONNECTOR"  # Generic IMAP email connector (e.g. ProtonMail Bridge)
 
 
 class PodcastStatus(StrEnum):
@@ -1946,7 +1948,7 @@ class Prompt(BaseModel, TimestampMixin):
     search_space = relationship("SearchSpace")
 
 
-if config.AUTH_TYPE == "GOOGLE":
+if config.AUTH_TYPE in ("GOOGLE", "NEXTCLOUD"):
 
     class OAuthAccount(SQLAlchemyBaseOAuthAccountTableUUID, Base):
         pass
@@ -2318,7 +2320,7 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
         yield session
 
 
-if config.AUTH_TYPE == "GOOGLE":
+if config.AUTH_TYPE in ("GOOGLE", "NEXTCLOUD"):
 
     async def get_user_db(session: AsyncSession = Depends(get_async_session)):
         yield SQLAlchemyUserDatabase(session, User, OAuthAccount)

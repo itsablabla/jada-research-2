@@ -11,7 +11,7 @@
 
 import packageJson from "../package.json";
 
-// Auth type: "LOCAL" for email/password, "GOOGLE" for OAuth
+// Auth type: "LOCAL" for email/password, "GOOGLE" for OAuth, "NEXTCLOUD" for Nextcloud OAuth
 // Placeholder: __NEXT_PUBLIC_FASTAPI_BACKEND_AUTH_TYPE__
 export const AUTH_TYPE = process.env.NEXT_PUBLIC_FASTAPI_BACKEND_AUTH_TYPE || "GOOGLE";
 
@@ -39,6 +39,9 @@ export const isLocalAuth = () => AUTH_TYPE === "LOCAL";
 
 // Helper to check if Google auth is enabled
 export const isGoogleAuth = () => AUTH_TYPE === "GOOGLE";
+
+// Helper to check if Nextcloud auth is enabled
+export const isNextcloudAuth = () => AUTH_TYPE === "NEXTCLOUD";
 
 // Helper to check if running in self-hosted mode
 export const isSelfHosted = () => DEPLOYMENT_MODE === "self-hosted";

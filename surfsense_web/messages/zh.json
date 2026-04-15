@@ -69,6 +69,7 @@
 		"login_success": "登录成功",
 		"register_success": "账户创建成功",
 		"continue_with_google": "使用 Google 继续",
+		"continue_with_nextcloud": "使用 Nextcloud 继续",
 		"cloud_dev_notice": "SurfSense 云版本正在开发中。查看",
 		"docs": "文档",
 		"cloud_dev_self_hosted": "以获取有关自托管版本的更多信息。",
