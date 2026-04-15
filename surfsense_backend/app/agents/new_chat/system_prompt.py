@@ -753,6 +753,12 @@ def build_configurable_system_prompt(
         system_instructions = custom_system_instructions.format(
             resolved_today=resolved_today
         )
+        # Append MCP routing even with custom instructions
+        if enabled_tool_names and any(
+            name.startswith(("nc_", "get_emails", "send_email", "search_emails"))
+            for name in enabled_tool_names
+        ):
+            system_instructions += _MCP_TOOL_ROUTING_INSTRUCTIONS
     elif use_default_system_instructions:
         visibility = thread_visibility or ChatVisibility.PRIVATE
         system_instructions = _get_system_instructions(

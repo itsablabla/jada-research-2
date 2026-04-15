@@ -165,7 +165,7 @@ async def create_default_llm_configs(
 
 async def create_default_image_gen_config(
     session: AsyncSession,
-    search_space_id: int,
+    search_space: "SearchSpace",
     user_id,
 ) -> None:
     """
@@ -181,14 +181,15 @@ async def create_default_image_gen_config(
         provider=ImageGenProvider(DEFAULT_IMAGE_GEN_CONFIG["provider"]),
         model_name=DEFAULT_IMAGE_GEN_CONFIG["model_name"],
         api_key=api_key,
-        search_space_id=search_space_id,
+        search_space_id=search_space.id,
         user_id=user_id,
     )
     session.add(db_img_config)
     await session.flush()
+    search_space.image_generation_config_id = db_img_config.id
     logger.info(
         f"Created default image generation config "
-        f"for search space {search_space_id}"
+        f"for search space {search_space.id}"
     )
 
 
@@ -218,7 +219,7 @@ async def create_search_space(
         await create_default_llm_configs(session, db_search_space, user.id)
 
         # Create default image generation config (DALL-E)
-        await create_default_image_gen_config(session, db_search_space.id, user.id)
+        await create_default_image_gen_config(session, db_search_space, user.id)
 
         await session.commit()
         await session.refresh(db_search_space)
