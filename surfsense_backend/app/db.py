@@ -66,6 +66,7 @@ class DocumentType(StrEnum):
     COMPOSIO_GOOGLE_CALENDAR_CONNECTOR = "COMPOSIO_GOOGLE_CALENDAR_CONNECTOR"
     LOCAL_FOLDER_FILE = "LOCAL_FOLDER_FILE"
     IMAP_CONNECTOR = "IMAP_CONNECTOR"
+    REPORT = "REPORT"
 
 
 # Native Google document types → their legacy Composio equivalents.
