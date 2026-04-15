@@ -6,10 +6,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.config import config
+from app.config.workspace_defaults import (
+    DEFAULT_LLM_CONFIGS,
+    _get_default_mcp_connectors,
+    get_llm_api_key,
+)
 from app.db import (
     ImageGenerationConfig,
+    LiteLLMProvider,
     NewLLMConfig,
     Permission,
+    SearchSourceConnector,
+    SearchSourceConnectorType,
     SearchSpace,
     SearchSpaceMembership,
     SearchSpaceRole,
@@ -76,6 +84,73 @@ async def create_default_roles_and_membership(
     session.add(owner_membership)
 
 
+async def create_default_mcp_connectors(
+    session: AsyncSession,
+    search_space_id: int,
+    user_id,
+) -> None:
+    """
+    Create default MCP connectors for a new search space.
+    Connectors are defined in app.config.workspace_defaults.
+    """
+    connectors = _get_default_mcp_connectors()
+    for connector_cfg in connectors:
+        db_connector = SearchSourceConnector(
+            name=connector_cfg["name"],
+            connector_type=SearchSourceConnectorType.MCP_CONNECTOR,
+            is_indexable=False,
+            config=connector_cfg["config"],
+            search_space_id=search_space_id,
+            user_id=user_id,
+        )
+        session.add(db_connector)
+    await session.flush()
+    logger.info(
+        f"Created {len(connectors)} default MCP connectors "
+        f"for search space {search_space_id}"
+    )
+
+
+async def create_default_llm_configs(
+    session: AsyncSession,
+    search_space: "SearchSpace",
+    user_id,
+) -> None:
+    """
+    Create default LLM configurations for a new search space and set the
+    search space's LLM preference IDs accordingly.
+    """
+    for llm_cfg in DEFAULT_LLM_CONFIGS:
+        db_llm = NewLLMConfig(
+            name=llm_cfg["name"],
+            description=llm_cfg.get("description", ""),
+            provider=LiteLLMProvider(llm_cfg["provider"]),
+            model_name=llm_cfg["model_name"],
+            api_key=get_llm_api_key(llm_cfg),
+            system_instructions="",
+            use_default_system_instructions=True,
+            citations_enabled=True,
+            search_space_id=search_space.id,
+            user_id=user_id,
+        )
+        session.add(db_llm)
+        await session.flush()  # Get the LLM config ID
+
+        # Assign to the appropriate search space preference
+        role = llm_cfg.get("role")
+        if role == "agent":
+            search_space.agent_llm_id = db_llm.id
+        elif role == "document_summary":
+            search_space.document_summary_llm_id = db_llm.id
+
+    logger.info(
+        f"Created {len(DEFAULT_LLM_CONFIGS)} default LLM configs "
+        f"for search space {search_space.id} "
+        f"(agent_llm_id={search_space.agent_llm_id}, "
+        f"document_summary_llm_id={search_space.document_summary_llm_id})"
+    )
+
+
 @router.post("/searchspaces", response_model=SearchSpaceRead)
 async def create_search_space(
     search_space: SearchSpaceCreate,
@@ -94,6 +169,12 @@ async def create_search_space(
 
         # Create default roles and owner membership
         await create_default_roles_and_membership(session, db_search_space.id, user.id)
+
+        # Create default MCP connectors (Composio, Nextcloud, ProtonMail, Tavily)
+        await create_default_mcp_connectors(session, db_search_space.id, user.id)
+
+        # Create default LLM configs (Claude Sonnet 4, Gemini Flash) and set preferences
+        await create_default_llm_configs(session, db_search_space, user.id)
 
         await session.commit()
         await session.refresh(db_search_space)

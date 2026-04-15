@@ -30,6 +30,11 @@ _MCP_CACHE_TTL_SECONDS = 300  # 5 minutes
 _MCP_CACHE_MAX_SIZE = 50
 _mcp_tools_cache: dict[int, tuple[float, list[StructuredTool]]] = {}
 
+# Limit MCP tool descriptions to avoid blowing the LLM context window.
+# With 4 connectors (~150 tools), long descriptions easily exceed 100K tokens.
+_MCP_MAX_DESCRIPTION_CHARS = 200  # truncate each tool description
+_MCP_MAX_TOOLS_PER_CONNECTOR = 40  # keep only the first N tools per server
+
 
 def _evict_expired_mcp_cache() -> None:
     """Remove expired entries from the MCP tools cache to prevent unbounded growth."""
@@ -66,6 +71,9 @@ def _create_dynamic_input_model_from_schema(
     field_definitions = {}
     for param_name, param_schema in properties.items():
         param_description = param_schema.get("description", "")
+        # Truncate long parameter descriptions to save context tokens
+        if len(param_description) > _MCP_MAX_DESCRIPTION_CHARS:
+            param_description = param_description[:_MCP_MAX_DESCRIPTION_CHARS] + "..."
         is_required = param_name in required_fields
 
         # Use Any type for complex schemas to preserve structure
@@ -108,8 +116,9 @@ async def _create_mcp_tool_from_definition_stdio(
     tool_description = tool_def.get("description", "No description provided")
     input_schema = tool_def.get("input_schema", {"type": "object", "properties": {}})
 
-    # Log the actual schema for debugging
-    logger.info(f"MCP tool '{tool_name}' input schema: {input_schema}")
+    # Truncate description to save context tokens
+    if len(tool_description) > _MCP_MAX_DESCRIPTION_CHARS:
+        tool_description = tool_description[:_MCP_MAX_DESCRIPTION_CHARS] + "..."
 
     # Create dynamic input model from schema
     input_model = _create_dynamic_input_model_from_schema(tool_name, input_schema)
@@ -168,8 +177,9 @@ async def _create_mcp_tool_from_definition_http(
     tool_description = tool_def.get("description", "No description provided")
     input_schema = tool_def.get("input_schema", {"type": "object", "properties": {}})
 
-    # Log the actual schema for debugging
-    logger.info(f"MCP HTTP tool '{tool_name}' input schema: {input_schema}")
+    # Truncate description to save context tokens
+    if len(tool_description) > _MCP_MAX_DESCRIPTION_CHARS:
+        tool_description = tool_description[:_MCP_MAX_DESCRIPTION_CHARS] + "..."
 
     # Create dynamic input model from schema
     input_model = _create_dynamic_input_model_from_schema(tool_name, input_schema)
@@ -352,6 +362,14 @@ async def _load_http_mcp_tools(
                 f"Discovered {len(tool_definitions)} tools from HTTP MCP server "
                 f"'{url}' (connector {connector_id})"
             )
+
+        # Cap tools per connector to limit context window usage
+        if len(tool_definitions) > _MCP_MAX_TOOLS_PER_CONNECTOR:
+            logger.warning(
+                f"HTTP MCP server '{url}' (connector {connector_id}) returned "
+                f"{len(tool_definitions)} tools, capping at {_MCP_MAX_TOOLS_PER_CONNECTOR}"
+            )
+            tool_definitions = tool_definitions[:_MCP_MAX_TOOLS_PER_CONNECTOR]
 
         # Create LangChain tools from definitions
         for tool_def in tool_definitions:
