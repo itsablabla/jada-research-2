@@ -629,11 +629,15 @@ if config.AUTH_TYPE == "NEXTCLOUD":
                 refresh_token = params.get("refresh_token", [None])[0]
 
                 if token:
-                    _store_pending_token(poll_key, {
-                        "access_token": token,
-                        "refresh_token": refresh_token or "",
-                    })
-                    logging.info(f"Nextcloud OAuth: stored pending token for poll_key={poll_key[:8]}...")
+                    try:
+                        _store_pending_token(poll_key, {
+                            "access_token": token,
+                            "refresh_token": refresh_token or "",
+                        })
+                        logging.info(f"Nextcloud OAuth: stored pending token for poll_key={poll_key[:8]}...")
+                    except (redis.exceptions.RedisError, OSError) as exc:
+                        logging.warning(f"Nextcloud OAuth: Redis unavailable, falling back to redirect: {exc}")
+                        return response
 
                     # Return HTML success page that tells user to close the window
                     return HTMLResponse(
@@ -724,7 +728,10 @@ try { window.close(); } catch(e) {}
         the OAuth popup. Once the callback middleware stores the token,
         this returns it and removes it from the pending store.
         """
-        token_data = _pop_pending_token(key)
+        try:
+            token_data = _pop_pending_token(key)
+        except (redis.exceptions.RedisError, OSError):
+            return JSONResponse({"status": "pending"}, status_code=202)
         if token_data:
             return JSONResponse({
                 "status": "ready",
