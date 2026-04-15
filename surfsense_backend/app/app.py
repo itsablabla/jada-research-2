@@ -630,7 +630,7 @@ if config.AUTH_TYPE == "NEXTCLOUD":
 
                 if token:
                     try:
-                        _store_pending_token(poll_key, {
+                        await asyncio.to_thread(_store_pending_token, poll_key, {
                             "access_token": token,
                             "refresh_token": refresh_token or "",
                         })
@@ -720,7 +720,7 @@ try { window.close(); } catch(e) {}
         tags=["auth"],
         dependencies=[Depends(rate_limit_poll)],
     )
-    async def nextcloud_poll_token(key: str):
+    def nextcloud_poll_token(key: str):
         """
         Poll for a pending OAuth token by poll_key.
 
