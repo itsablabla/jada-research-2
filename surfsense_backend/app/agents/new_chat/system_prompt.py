@@ -95,7 +95,9 @@ If a user asks to "find files", "list documents", "search files", etc. — use N
 
 
 def _get_system_instructions(
-    thread_visibility: ChatVisibility | None = None, today: datetime | None = None
+    thread_visibility: ChatVisibility | None = None,
+    today: datetime | None = None,
+    enabled_tool_names: set[str] | None = None,
 ) -> str:
     """Build system instructions based on thread visibility (private vs shared)."""
 
@@ -105,7 +107,15 @@ def _get_system_instructions(
         base = _SYSTEM_INSTRUCTIONS_SHARED.format(resolved_today=resolved_today)
     else:
         base = SURFSENSE_SYSTEM_INSTRUCTIONS.format(resolved_today=resolved_today)
-    return base + _MCP_TOOL_ROUTING_INSTRUCTIONS
+
+    # Only append MCP routing instructions when dedicated connectors are present
+    if enabled_tool_names and any(
+        name.startswith(("nc_", "get_emails", "send_email", "search_emails"))
+        for name in enabled_tool_names
+    ):
+        base += _MCP_TOOL_ROUTING_INSTRUCTIONS
+
+    return base
 
 
 # =============================================================================
@@ -695,7 +705,7 @@ def build_surfsense_system_prompt(
     """
 
     visibility = thread_visibility or ChatVisibility.PRIVATE
-    system_instructions = _get_system_instructions(visibility, today)
+    system_instructions = _get_system_instructions(visibility, today, enabled_tool_names)
     tools_instructions = _get_tools_instructions(
         visibility, enabled_tool_names, disabled_tool_names
     )
@@ -745,7 +755,9 @@ def build_configurable_system_prompt(
         )
     elif use_default_system_instructions:
         visibility = thread_visibility or ChatVisibility.PRIVATE
-        system_instructions = _get_system_instructions(visibility, today)
+        system_instructions = _get_system_instructions(
+            visibility, today, enabled_tool_names
+        )
     else:
         system_instructions = ""
 

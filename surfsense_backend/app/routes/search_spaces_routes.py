@@ -123,13 +123,21 @@ async def create_default_llm_configs(
     Create default LLM configurations for a new search space and set the
     search space's LLM preference IDs accordingly.
     """
+    created_count = 0
     for llm_cfg in DEFAULT_LLM_CONFIGS:
+        api_key = get_llm_api_key(llm_cfg)
+        if not api_key:
+            logger.warning(
+                f"Skipping LLM config '{llm_cfg['name']}' — no API key"
+            )
+            continue
+
         db_llm = NewLLMConfig(
             name=llm_cfg["name"],
             description=llm_cfg.get("description", ""),
             provider=LiteLLMProvider(llm_cfg["provider"]),
             model_name=llm_cfg["model_name"],
-            api_key=get_llm_api_key(llm_cfg),
+            api_key=api_key,
             system_instructions="",
             use_default_system_instructions=True,
             citations_enabled=True,
@@ -138,6 +146,7 @@ async def create_default_llm_configs(
         )
         session.add(db_llm)
         await session.flush()  # Get the LLM config ID
+        created_count += 1
 
         # Assign to the appropriate search space preference
         role = llm_cfg.get("role")
@@ -147,7 +156,7 @@ async def create_default_llm_configs(
             search_space.document_summary_llm_id = db_llm.id
 
     logger.info(
-        f"Created {len(DEFAULT_LLM_CONFIGS)} default LLM configs "
+        f"Created {created_count} default LLM configs "
         f"for search space {search_space.id} "
         f"(agent_llm_id={search_space.agent_llm_id}, "
         f"document_summary_llm_id={search_space.document_summary_llm_id})"

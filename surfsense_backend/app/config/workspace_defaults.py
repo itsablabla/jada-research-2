@@ -2,7 +2,7 @@
 Default workspace configuration for new search spaces.
 
 When a new search space is created, these defaults are automatically applied:
-- 4 MCP connectors (Composio, Nextcloud Files, ProtonMail, Tavily)
+- 6 MCP connectors (Composio, Nextcloud Files, ProtonMail, Tavily, Firecrawl, Bright Data)
 - 2 LLM configs (Claude Sonnet 4 for chat, Gemini 2.0 Flash for transforms)
 - 1 Image generation config (DALL-E / gpt-image-1 via OpenAI)
 
@@ -14,6 +14,8 @@ container's .env or docker-compose environment section:
   DEFAULT_PROTONMAIL_MCP_URL
   DEFAULT_PROTONMAIL_MCP_TOKEN
   DEFAULT_TAVILY_MCP_URL
+  DEFAULT_FIRECRAWL_API_KEY
+  DEFAULT_BRIGHT_DATA_MCP_URL
   DEFAULT_ANTHROPIC_API_KEY
   DEFAULT_GOOGLE_API_KEY
   DEFAULT_OPENAI_API_KEY          (for DALL-E image generation)
@@ -101,6 +103,38 @@ def _get_default_mcp_connectors() -> list[dict]:
         })
     else:
         logger.warning("DEFAULT_TAVILY_MCP_URL not set — skipping Tavily connector")
+
+    # 5. Firecrawl
+    firecrawl_key = os.getenv("DEFAULT_FIRECRAWL_API_KEY")
+    if firecrawl_key:
+        connectors.append({
+            "name": "Firecrawl",
+            "config": {
+                "server_config": {
+                    "url": f"https://mcp.firecrawl.dev/{firecrawl_key}/v2/mcp",
+                    "headers": {},
+                    "transport": "streamable-http",
+                }
+            },
+        })
+    else:
+        logger.warning("DEFAULT_FIRECRAWL_API_KEY not set — skipping Firecrawl connector")
+
+    # 6. Bright Data
+    bright_data_url = os.getenv("DEFAULT_BRIGHT_DATA_MCP_URL")
+    if bright_data_url:
+        connectors.append({
+            "name": "Bright Data",
+            "config": {
+                "server_config": {
+                    "url": bright_data_url,
+                    "headers": {},
+                    "transport": "sse",
+                }
+            },
+        })
+    else:
+        logger.warning("DEFAULT_BRIGHT_DATA_MCP_URL not set — skipping Bright Data connector")
 
     return connectors
 
